@@ -1,117 +1,475 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>질량이 다른 두 공, 같은 시간 같은 곳에 떨어질 수 있을까?</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
+<script>
+(() => {
+  const CANVAS_W = 900;
+  const CANVAS_H = 460;
+  const GROUND_Y = 390;
+  const LAUNCH_X = 80;
+  const G = 320; // 중력 가속도 (px/s^2)
 
-<div class="topbar">
-  <h1>질량이 다른 두 공, 같은 시간 같은 곳에 떨어질 수 있을까?</h1>
-  <p class="subtitle">
-    공기저항 없음 · 두 공 모두 중력가속도만 받음
-    <span class="ball-tag ball-a">공 A (질량 5kg)</span>
-    <span class="ball-tag ball-b">공 B (질량 1kg)</span>
-  </p>
-</div>
+  const MASS_A = 5;
+  const MASS_B = 1;
 
-<div class="layout">
+  const COLOR_A = '#f43f5e'; // Rose-500 (빨강)
+  const COLOR_B = '#3b82f6'; // Blue-500 (파랑)
+  
+  const COLOR_VECTOR_X = '#f43f5e'; // X축 성분 (빨강)
+  const COLOR_VECTOR_Y = '#3b82f6'; // Y축 성분 (파랑)
+  const COLOR_VECTOR_RESULTANT = '#10b981'; // 합성 벡터 (초록)
 
-  <div class="side-panel">
-    <h2>궤적 표시</h2>
-    <div class="btn-group" id="trailModeGroup">
-      <button class="mode-btn active" data-trail="persist">궤적 계속 남기기</button>
-      <button class="mode-btn" data-trail="fade">궤적 서서히 사라짐</button>
-      <button class="mode-btn" data-trail="none">궤적 표시 안 함</button>
-    </div>
-  </div>
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
 
-  <div class="stage">
-    <div class="scenario-bar">
-      <button class="scenario-btn active" data-scenario="default">기본 예시 (각도·속력 모두 다름)</button>
-      <button class="scenario-btn" data-scenario="sameAngle">각도만 같게</button>
-      <button class="scenario-btn" data-scenario="sameSpeed">속력만 같게</button>
-      <button class="scenario-btn" data-scenario="manual">직접 조정</button>
-    </div>
+  // 인터랙션 상태 관리
+  const state = {
+    trailMode: 'persist', // 'persist', 'fade', 'none'
+    showVectors: true,
+    scenario: 'default', // 'default', 'sameAngle', 'sameSpeed', 'manual'
+    running: false,
+    paused: false,
+    lastTs: null,
+    balls: null,
+    activeTab: 'A' // 수동 설정 탭: 'A' 또는 'B'
+  };
 
-    <button class="run-btn" id="runBtn">▶ 실행 (두 공 동시 발사)</button>
+  // 수동 조절 모드 설정값
+  const manualConfig = {
+    A: { angleDeg: 55, speed: 230 },
+    B: { angleDeg: 35, speed: 290 }
+  };
 
-    <canvas id="canvas" width="900" height="480"></canvas>
+  // 고정 시나리오 프리셋
+  const FIXED_SCENARIOS = {
+    default:   { angleA: 55, speedA: 230, angleB: 35, speedB: 290 },
+    sameAngle: { angleA: 45, speedA: 220, angleB: 45, speedB: 310 },
+    sameSpeed: { angleA: 35, speedA: 260, angleB: 65, speedB: 260 },
+  };
 
-    <div class="result-bar" id="resultBar">두 공이 같은 출발점에 서 있습니다. 실행 버튼을 누르면 동시에 발사됩니다.</div>
+  function createBall(angleDeg, speed, mass, color, name) {
+    const rad = angleDeg * Math.PI / 180;
+    return {
+      name,
+      mass,
+      color,
+      angleDeg,
+      speed,
+      vx: speed * Math.cos(rad),
+      vy0: -speed * Math.sin(rad), // 캔버스 Y축은 아래쪽이 +이므로 위쪽 발사는 음수
+      x: LAUNCH_X,
+      y: GROUND_Y,
+      t: 0,
+      landed: false,
+      landX: null,
+      landT: null,
+      trail: [] // {x, y, t} 배열
+    };
+  }
 
-    <div class="manual-panel" id="manualPanel" hidden>
-      <h2>직접 조정</h2>
+  function setIdleState() {
+    let cfg;
+    if (state.scenario === 'manual') {
+      cfg = {
+        angleA: manualConfig.A.angleDeg,
+        speedA: manualConfig.A.speed,
+        angleB: manualConfig.B.angleDeg,
+        speedB: manualConfig.B.speed
+      };
+    } else {
+      cfg = FIXED_SCENARIOS[state.scenario];
+    }
 
-      <div class="control-row">
-        <label>발사 각도 (두 공 공통)</label>
-        <div class="dial-wrap">
-          <svg id="angleDial" width="200" height="120" viewBox="0 0 200 120">
-            <circle class="dial-track" cx="100" cy="100" r="80" />
-            <line id="angleNeedle" class="dial-needle" x1="100" y1="100" x2="156.57" y2="43.43" />
-            <circle id="angleHandle" class="dial-handle" cx="156.57" cy="43.43" r="8" />
-          </svg>
-          <span class="value-readout"><span id="angleValue">45</span>°</span>
-        </div>
-      </div>
+    state.balls = {
+      A: createBall(cfg.angleA, cfg.speedA, MASS_A, COLOR_A, '공 A (5kg)'),
+      B: createBall(cfg.angleB, cfg.speedB, MASS_B, COLOR_B, '공 B (1kg)')
+    };
+    state.running = false;
+    state.paused = false;
+  }
 
-      <div class="control-row">
-        <label for="forceSlider">힘 (공통 기준값)</label>
-        <input type="range" id="forceSlider" min="80" max="300" value="170">
-        <span class="value-readout"><span id="forceValue">170</span> N</span>
-      </div>
+  function launchSimulation() {
+    let cfg;
+    if (state.scenario === 'manual') {
+      cfg = {
+        angleA: manualConfig.A.angleDeg,
+        speedA: manualConfig.A.speed,
+        angleB: manualConfig.B.angleDeg,
+        speedB: manualConfig.B.speed
+      };
+    } else {
+      cfg = FIXED_SCENARIOS[state.scenario];
+    }
 
-      <fieldset class="diff-fieldset">
-        <legend>속력차 만드는 방법</legend>
+    state.balls = {
+      A: createBall(cfg.angleA, cfg.speedA, MASS_A, COLOR_A, '공 A (5kg)'),
+      B: createBall(cfg.angleB, cfg.speedB, MASS_B, COLOR_B, '공 B (1kg)')
+    };
+    state.running = true;
+    state.paused = false;
+    state.lastTs = performance.now();
+    document.getElementById('stopBtn').textContent = '정지';
+    setResult('시뮬레이션 진행 중...');
+  }
 
-        <div class="radio-row">
-          <label class="radio-label">
-            <input type="radio" name="diffMode" value="force" checked>
-            각도는 고정, 힘을 조정해 속력차 만들기
-          </label>
-        </div>
-        <div class="control-row">
-          <label for="forceDiffSlider">공 B 힘 차이</label>
-          <input type="range" id="forceDiffSlider" min="-100" max="100" value="0">
-          <span class="value-readout"><span id="forceDiffValue">0</span> N</span>
-        </div>
+  function updateBallPhysics(ball, dt, nowTime) {
+    if (!ball.landed) {
+      ball.t += dt;
+      const x = LAUNCH_X + ball.vx * ball.t;
+      const y = GROUND_Y + (ball.vy0 * ball.t + 0.5 * G * ball.t * ball.t);
 
-        <div class="radio-row">
-          <label class="radio-label">
-            <input type="radio" name="diffMode" value="angle">
-            힘(속력)은 고정, 각도를 조정해 차이 만들기
-          </label>
-        </div>
-        <div class="control-row">
-          <label for="angleDiffSlider">공 B 각도 차이</label>
-          <input type="range" id="angleDiffSlider" min="-40" max="40" value="0" disabled>
-          <span class="value-readout"><span id="angleDiffValue">0</span>°</span>
-        </div>
-      </fieldset>
-      <p class="hint">설정을 조정한 뒤, 위의 ▶ 실행 버튼을 누르면 이 설정으로 발사됩니다.</p>
-    </div>
-  </div>
+      if (ball.t > 0.05 && y >= GROUND_Y) {
+        const landT = (-2 * ball.vy0) / G;
+        ball.landed = true;
+        ball.landT = landT;
+        ball.x = LAUNCH_X + ball.vx * landT;
+        ball.y = GROUND_Y;
+        ball.landX = ball.x;
+      } else {
+        ball.x = x;
+        ball.y = y;
+      }
 
-  <div class="side-panel">
-    <h2>실행 제어</h2>
-    <div class="btn-group">
-      <button class="control-btn" id="stopBtn">정지</button>
-      <button class="control-btn" id="resetBtn">초기화</button>
-    </div>
+      // 궤적 좌표 추가
+      ball.trail.push({ x: ball.x, y: ball.y, t: nowTime });
+    }
+  }
 
-    <h2>힘 벡터</h2>
-    <button class="control-btn toggle-btn active" id="vectorToggleBtn">힘 벡터 표시: 켜짐</button>
-    <p class="hint">빨강 = 공 A가 받는 중력, 파랑 = 공 B가 받는 중력, 초록 = 둘을 벡터 합성한 힘. 화살표 길이는 힘의 크기(질량×g)에 비례합니다.</p>
-  </div>
+  function animationLoop(ts) {
+    if (!state.lastTs) state.lastTs = ts;
+    const dt = Math.min(0.032, (ts - state.lastTs) / 1000);
+    state.lastTs = ts;
 
-</div>
+    const nowTime = performance.now();
 
-<p class="foot-note">
-  이 시뮬레이션은 교육용으로 단순화된 픽셀 단위 물리량을 사용합니다 (실제 SI 단위가 아님). 핵심 결론: 공기저항이 없다면 가속도는 항상 g로 동일하므로, 두 공이 같은 시간·같은 지점에 도착하려면 초기 속도의 수평·수직 성분이 완전히 같아야 합니다 — 즉 던지는 속력과 각도가 똑같아야 합니다.
-</p>
+    if (state.balls) {
+      if (state.running && !state.paused) {
+        updateBallPhysics(state.balls.A, dt, nowTime);
+        updateBallPhysics(state.balls.B, dt, nowTime);
 
-<script src="script.js"></script>
+        if (state.balls.A.landed && state.balls.B.landed) {
+          state.running = false;
+          finishRun();
+        }
+      }
+    }
+
+    drawScene(nowTime);
+    requestAnimationFrame(animationLoop);
+  }
+
+  function finishRun() {
+    const { A, B } = state.balls;
+    const dx = Math.abs(A.landX - B.landX);
+    const dt = Math.abs(A.landT - B.landT);
+    const samePlace = dx < 3;
+    const sameTime = dt < 0.03;
+    let verdict;
+
+    if (samePlace && sameTime) {
+      verdict = '<span class="text-emerald-400 font-bold">🎉 두 공이 같은 시간, 같은 지점에 도착했습니다! (속력과 각도가 완전히 동일할 때만 가능)</span>';
+    } else {
+      verdict = `<span class="text-rose-400 font-bold">❌ 결론: 도착지점 차이 ${dx.toFixed(0)}px | 도착시간 차이 ${dt.toFixed(2)}초 — 각도나 속력이 다르면 동시에 같은 지점에 올 수 없습니다.</span>`;
+    }
+
+    setResult(
+      `<div class="w-full flex flex-col gap-1">` +
+      `<div><span class="font-bold text-rose-400">🔴 ${A.name}</span>: 각도 ${A.angleDeg.toFixed(1)}°, 속력 ${A.speed.toFixed(0)}px/s, 체류시간 ${A.landT.toFixed(2)}초, 거리 ${A.landX.toFixed(0)}px</div>` +
+      `<div><span class="font-bold text-blue-400">🔵 ${B.name}</span>: 각도 ${B.angleDeg.toFixed(1)}°, 속력 ${B.speed.toFixed(0)}px/s, 체류시간 ${B.landT.toFixed(2)}초, 거리 ${B.landX.toFixed(0)}px</div>` +
+      `<div class="mt-1 pt-1 border-t border-slate-700/60">${verdict}</div>` +
+      `</div>`
+    );
+  }
+
+  function setResult(html) {
+    document.getElementById('resultBar').innerHTML = html;
+  }
+
+  function drawScene(nowTime) {
+    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // 지면 그리기
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y);
+    ctx.lineTo(CANVAS_W, GROUND_Y);
+    ctx.stroke();
+
+    // 지면 아래 배경 채우기
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, GROUND_Y + 1, CANVAS_W, CANVAS_H - GROUND_Y);
+
+    // 발사대 표시
+    ctx.fillStyle = '#10b981';
+    ctx.beginPath();
+    ctx.arc(LAUNCH_X, GROUND_Y, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (!state.balls) return;
+    const { A, B } = state.balls;
+
+    // 궤적 그리기
+    drawDashedTrail(A, nowTime);
+    drawDashedTrail(B, nowTime);
+
+    // 벡터 분해 표시
+    if (state.showVectors) {
+      drawVectorDecomposition(A);
+      drawVectorDecomposition(B);
+    }
+
+    // 공 그리기
+    drawBallObject(A);
+    drawBallObject(B);
+
+    // 공 라벨 표시
+    drawLabels(A, B);
+  }
+
+  function drawDashedTrail(ball, nowTime) {
+    if (state.trailMode === 'none' || ball.trail.length < 2) return;
+
+    ctx.save();
+    ctx.setLineDash([6, 6]);
+    ctx.lineWidth = 2.5;
+
+    if (state.trailMode === 'persist') {
+      ctx.strokeStyle = ball.color;
+      ctx.globalAlpha = 0.75;
+      ctx.beginPath();
+      ball.trail.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.stroke();
+    } else if (state.trailMode === 'fade') {
+      const FADE_MS = 1800;
+
+      for (let i = 1; i < ball.trail.length; i++) {
+        const p0 = ball.trail[i - 1];
+        const p1 = ball.trail[i];
+        const age = nowTime - p1.t;
+        if (age > FADE_MS) continue;
+
+        const alpha = Math.max(0, 1 - age / FADE_MS);
+        ctx.globalAlpha = alpha * 0.85;
+        ctx.strokeStyle = ball.color;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.stroke();
+      }
+
+      ball.trail = ball.trail.filter(p => nowTime - p.t <= FADE_MS);
+    }
+    ctx.restore();
+  }
+
+  function drawBallObject(ball) {
+    ctx.save();
+    ctx.fillStyle = ball.color;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.mass === 5 ? 10 : 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawLabels(A, B) {
+    ctx.font = 'bold 11px Pretendard, sans-serif';
+    const dist = Math.hypot(A.x - B.x, A.y - B.y);
+    if (dist < 18) {
+      ctx.fillStyle = A.color;
+      ctx.fillText(`A (5kg)`, A.x + 12, A.y - 18);
+      ctx.fillStyle = B.color;
+      ctx.fillText(`B (1kg)`, B.x + 12, B.y - 4);
+    } else {
+      ctx.fillStyle = A.color;
+      ctx.fillText(`A (5kg)`, A.x + 12, A.y - 8);
+      ctx.fillStyle = B.color;
+      ctx.fillText(`B (1kg)`, B.x + 12, B.y - 8);
+    }
+  }
+
+  function drawArrow(x, y, dx, dy, color, label = '') {
+    if (Math.hypot(dx, dy) < 2) return;
+    const toX = x + dx;
+    const toY = y + dy;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+
+    // 화살표 줄기
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+
+    // 화살표 머리
+    const angle = Math.atan2(dy, dx);
+    const headLen = 6;
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - headLen * Math.cos(angle - Math.PI / 6), toY - headLen * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(toX - headLen * Math.cos(angle + Math.PI / 6), toY - headLen * Math.sin(angle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fill();
+
+    if (label) {
+      ctx.font = '10px Pretendard, sans-serif';
+      ctx.fillText(label, toX + 4, toY + 4);
+    }
+    ctx.restore();
+  }
+
+  function drawVectorDecomposition(ball) {
+    if (ball.landed) return;
+
+    const currentVy = ball.vy0 + G * ball.t;
+    const currentVx = ball.vx;
+
+    const scale = 0.22;
+    const vecX = currentVx * scale;
+    const vecY = currentVy * scale;
+
+    drawArrow(ball.x, ball.y, vecX, 0, COLOR_VECTOR_X, `Vx`);
+    drawArrow(ball.x, ball.y, 0, vecY, COLOR_VECTOR_Y, `Vy`);
+    drawArrow(ball.x, ball.y, vecX, vecY, COLOR_VECTOR_RESULTANT, `V`);
+  }
+
+  // Event Listeners
+  document.getElementById('runBtn').addEventListener('click', () => {
+    launchSimulation();
+  });
+
+  const stopBtn = document.getElementById('stopBtn');
+  stopBtn.addEventListener('click', () => {
+    if (!state.running) return;
+    state.paused = !state.paused;
+    stopBtn.textContent = state.paused ? '▶ 계속하기' : '정지';
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    stopBtn.textContent = '정지';
+    setIdleState();
+    setResult('초기화되었습니다. [▶ 발사] 버튼을 누르면 지정된 값으로 다시 출발합니다.');
+  });
+
+  const vectorBtn = document.getElementById('vectorToggleBtn');
+  vectorBtn.addEventListener('click', () => {
+    state.showVectors = !state.showVectors;
+    vectorBtn.textContent = `벡터 성분 표시: ${state.showVectors ? '켜짐' : '꺼짐'}`;
+    vectorBtn.className = `w-full py-2 px-3 rounded-xl text-xs font-semibold text-white transition shadow-md mb-2 ${
+      state.showVectors ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-slate-700 hover:bg-slate-600'
+    }`;
+  });
+
+  document.querySelectorAll('#trailModeGroup .mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#trailModeGroup .mode-btn').forEach(b => {
+        b.className = 'mode-btn w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-slate-700 bg-slate-800/80 text-slate-300 hover:bg-slate-700/50 transition';
+      });
+      btn.className = 'mode-btn w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-emerald-500 bg-emerald-500/10 text-emerald-400 transition';
+      state.trailMode = btn.dataset.trail;
+    });
+  });
+
+  const manualPanel = document.getElementById('manualPanel');
+  document.querySelectorAll('#scenarioGroup .scenario-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#scenarioGroup .scenario-btn').forEach(b => {
+        b.className = 'scenario-btn px-4 py-2 rounded-xl text-xs font-semibold border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700/50 transition';
+      });
+      btn.className = 'scenario-btn px-4 py-2 rounded-xl text-xs font-semibold border border-emerald-500 bg-emerald-500/10 text-emerald-400 transition';
+      state.scenario = btn.dataset.scenario;
+      manualPanel.classList.toggle('hidden', state.scenario !== 'manual');
+      stopBtn.textContent = '정지';
+      setIdleState();
+      setResult('조건이 변경되었습니다. [▶ 발사] 버튼을 누르면 실행됩니다.');
+    });
+  });
+
+  // 수동 입력 탭 전환 (공 A / 공 B)
+  const tabBallA = document.getElementById('tabBallA');
+  const tabBallB = document.getElementById('tabBallB');
+
+  function updateTabUI() {
+    if (state.activeTab === 'A') {
+      tabBallA.className = 'px-4 py-1.5 rounded-lg text-xs font-bold bg-rose-500 text-white shadow transition';
+      tabBallB.className = 'px-4 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-slate-200 transition';
+      document.getElementById('activeBallAngleLabel').textContent = '🔴 공 A (5kg) 발사 각도';
+      document.getElementById('activeBallSpeedLabel').textContent = '🔴 공 A (5kg) 발사 속력';
+    } else {
+      tabBallA.className = 'px-4 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-slate-200 transition';
+      tabBallB.className = 'px-4 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white shadow transition';
+      document.getElementById('activeBallAngleLabel').textContent = '🔵 공 B (1kg) 발사 각도';
+      document.getElementById('activeBallSpeedLabel').textContent = '🔵 공 B (1kg) 발사 속력';
+    }
+
+    const currentCfg = manualConfig[state.activeTab];
+    setDialAngle(currentCfg.angleDeg);
+    document.getElementById('speedSlider').value = currentCfg.speed;
+    document.getElementById('speedValue').textContent = currentCfg.speed;
+  }
+
+  tabBallA.addEventListener('click', () => { state.activeTab = 'A'; updateTabUI(); });
+  tabBallB.addEventListener('click', () => { state.activeTab = 'B'; updateTabUI(); });
+
+  // 각도 조절 다이얼
+  const angleDial = document.getElementById('angleDial');
+  const angleHandle = document.getElementById('angleHandle');
+  const angleNeedle = document.getElementById('angleNeedle');
+  const angleValueEl = document.getElementById('angleValue');
+  const DIAL_CX = 100, DIAL_CY = 100, DIAL_R = 80;
+
+  function setDialAngle(deg) {
+    deg = Math.round(deg);
+    manualConfig[state.activeTab].angleDeg = deg;
+    const rad = deg * Math.PI / 180;
+    const hx = DIAL_CX + DIAL_R * Math.cos(rad);
+    const hy = DIAL_CY - DIAL_R * Math.sin(rad);
+    angleHandle.setAttribute('cx', hx);
+    angleHandle.setAttribute('cy', hy);
+    angleNeedle.setAttribute('x2', hx);
+    angleNeedle.setAttribute('y2', hy);
+    angleValueEl.textContent = deg;
+    setIdleState();
+  }
+
+  let draggingDial = false;
+  function dialPointToAngle(evt) {
+    const rect = angleDial.getBoundingClientRect();
+    const scaleX = 200 / rect.width;
+    const scaleY = 120 / rect.height;
+    const px = (evt.clientX - rect.left) * scaleX;
+    const py = (evt.clientY - rect.top) * scaleY;
+    let deg = Math.atan2(DIAL_CY - py, px - DIAL_CX) * 180 / Math.PI;
+    return Math.min(85, Math.max(5, deg));
+  }
+
+  angleDial.addEventListener('pointerdown', (e) => {
+    draggingDial = true;
+    angleDial.setPointerCapture(e.pointerId);
+    setDialAngle(dialPointToAngle(e));
+  });
+  angleDial.addEventListener('pointermove', (e) => {
+    if (!draggingDial) return;
+    setDialAngle(dialPointToAngle(e));
+  });
+  angleDial.addEventListener('pointerup', () => { draggingDial = false; });
+
+  // 속도 슬라이더 이벤트
+  const speedSlider = document.getElementById('speedSlider');
+  speedSlider.addEventListener('input', (e) => {
+    const val = Number(e.target.value);
+    manualConfig[state.activeTab].speed = val;
+    document.getElementById('speedValue').textContent = val;
+    setIdleState();
+  });
+
+  // 초기화 및 애니메이션 루프 실행
+  setIdleState();
+  requestAnimationFrame(animationLoop);
+})();
+</script>
 </body>
 </html>
