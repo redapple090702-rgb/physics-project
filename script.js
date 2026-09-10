@@ -35,7 +35,7 @@
       angleDeg,
       speed,
       vx: speed * Math.cos(rad),
-      vy0: speed * Math.sin(rad),
+      vy0: -speed * Math.sin(rad), // Canvas Y축 위쪽(-) 방향 속도
       x: LAUNCH_X,
       y: GROUND_Y,
       t: 0,
@@ -48,7 +48,7 @@
 
   // 사전 시나리오는 매번 같은 결과를 보여주도록 고정값을 사용한다 (무작위 아님).
   const FIXED_SCENARIOS = {
-    default: { angleA: 55, speedA: 230, angleB: 35, speedB: 290 },
+    default:   { angleA: 55, speedA: 230, angleB: 35, speedB: 290 },
     sameAngle: { angleA: 45, speedA: 220, angleB: 45, speedB: 300 },
     sameSpeed: { angleA: 35, speedA: 260, angleB: 65, speedB: 260 },
   };
@@ -114,11 +114,13 @@
   function updateBall(ball, dt) {
     if (ball.landed) return;
     ball.t += dt;
-    const x = LAUNCH_X + ball.vx * ball.t;
-    const y = GROUND_Y - (ball.vy0 * ball.t - 0.5 * G * ball.t * ball.t);
 
-    if (y >= GROUND_Y) {
-      const landT = (2 * ball.vy0) / G;
+    // Canvas 좌표계 맞춤 계산 (y축 아래가 +)
+    const x = LAUNCH_X + ball.vx * ball.t;
+    const y = GROUND_Y + (ball.vy0 * ball.t + 0.5 * G * ball.t * ball.t);
+
+    if (ball.t > 0.05 && y >= GROUND_Y) {
+      const landT = (-2 * ball.vy0) / G;
       ball.landed = true;
       ball.landT = landT;
       ball.x = LAUNCH_X + ball.vx * landT;
