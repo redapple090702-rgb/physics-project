@@ -53,14 +53,14 @@
       angleDeg,
       speed,
       vx: speed * Math.cos(rad),
-      vy0: -speed * Math.sin(rad), // 캔버스 Y축은 아래쪽이 +이므로 위쪽 발사는 음수
+      vy0: -speed * Math.sin(rad),
       x: LAUNCH_X,
       y: GROUND_Y,
       t: 0,
       landed: false,
       landX: null,
       landT: null,
-      trail: [] // {x, y, t} 배열
+      trail: []
     };
   }
 
@@ -127,7 +127,6 @@
         ball.y = y;
       }
 
-      // 궤적 좌표 추가
       ball.trail.push({ x: ball.x, y: ball.y, t: nowTime });
     }
   }
@@ -185,7 +184,6 @@
   function drawScene(nowTime) {
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
 
-    // 지면 그리기
     ctx.strokeStyle = '#475569';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -193,11 +191,9 @@
     ctx.lineTo(CANVAS_W, GROUND_Y);
     ctx.stroke();
 
-    // 지면 아래 배경 채우기
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, GROUND_Y + 1, CANVAS_W, CANVAS_H - GROUND_Y);
 
-    // 발사대 표시
     ctx.fillStyle = '#10b981';
     ctx.beginPath();
     ctx.arc(LAUNCH_X, GROUND_Y, 4, 0, Math.PI * 2);
@@ -206,21 +202,17 @@
     if (!state.balls) return;
     const { A, B } = state.balls;
 
-    // 궤적 그리기
     drawDashedTrail(A, nowTime);
     drawDashedTrail(B, nowTime);
 
-    // 벡터 분해 표시
     if (state.showVectors) {
       drawVectorDecomposition(A);
       drawVectorDecomposition(B);
     }
 
-    // 공 그리기
     drawBallObject(A);
     drawBallObject(B);
 
-    // 공 라벨 표시
     drawLabels(A, B);
   }
 
@@ -298,13 +290,11 @@
     ctx.fillStyle = color;
     ctx.lineWidth = 2;
 
-    // 화살표 줄기
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.lineTo(toX, toY);
     ctx.stroke();
 
-    // 화살표 머리
     const angle = Math.atan2(dy, dx);
     const headLen = 6;
     ctx.beginPath();
@@ -336,7 +326,6 @@
     drawArrow(ball.x, ball.y, vecX, vecY, COLOR_VECTOR_RESULTANT, `V`);
   }
 
-  // Event Listeners
   document.getElementById('runBtn').addEventListener('click', () => {
     launchSimulation();
   });
@@ -388,7 +377,6 @@
     });
   });
 
-  // 수동 입력 탭 전환 (공 A / 공 B)
   const tabBallA = document.getElementById('tabBallA');
   const tabBallB = document.getElementById('tabBallB');
 
@@ -414,7 +402,6 @@
   tabBallA.addEventListener('click', () => { state.activeTab = 'A'; updateTabUI(); });
   tabBallB.addEventListener('click', () => { state.activeTab = 'B'; updateTabUI(); });
 
-  // 각도 조절 다이얼
   const angleDial = document.getElementById('angleDial');
   const angleHandle = document.getElementById('angleHandle');
   const angleNeedle = document.getElementById('angleNeedle');
@@ -457,7 +444,6 @@
   });
   angleDial.addEventListener('pointerup', () => { draggingDial = false; });
 
-  // 속도 슬라이더 이벤트
   const speedSlider = document.getElementById('speedSlider');
   speedSlider.addEventListener('input', (e) => {
     const val = Number(e.target.value);
@@ -466,10 +452,7 @@
     setIdleState();
   });
 
-  // 초기화 및 애니메이션 루프 실행
   setIdleState();
   requestAnimationFrame(animationLoop);
 })();
 </script>
-</body>
-</html>
